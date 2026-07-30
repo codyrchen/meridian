@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(npm --prefix apps/web run lint:*)",
+      "Bash(npm --prefix apps/web run typecheck:*)",
+      "Bash(npm --prefix apps/web run test:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(psql:*DROP:*)",
+      "Bash(psql:*TRUNCATE:*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/*private_key*)",
+      "Read(**/*seed_phrase*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/claude_pretool_guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

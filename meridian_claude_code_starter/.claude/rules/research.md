@@ -1,0 +1,12 @@
+---
+paths:
+  - "packages/research/**"
+  - "packages/models/**"
+  - "notebooks/**"
+---
+- Separate exploratory outputs from publishable outputs.
+- Every publishable run records code SHA, data snapshot ID, config, random seed, and environment lockfile.
+- Never random-split time series.
+- Never merge on future-known schedule revisions.
+- Include naive baselines and placebo tests.
+- Label exploratory p-values and correct confirmatory families for multiple testing.
