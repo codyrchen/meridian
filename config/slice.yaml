@@ -1,0 +1,19 @@
+# Epic 0 slice configuration: one asset, one benchmark, one curated event.
+asset:
+  coingecko_id: arbitrum
+  symbol: ARB
+  name: Arbitrum
+benchmark:
+  coingecko_id: bitcoin
+  symbol: BTC
+  name: Bitcoin
+event_file: data/curated/unlock_events/arb.yaml
+window:
+  pre_days: 30
+  post_days: 30
+vs_currency: usd
+# Extra calendar days fetched on both sides of the required window so a late
+# or early-boundary observation never truncates coverage.
+fetch_buffer_days: 3
+archive_root: data/raw
+output_root: outputs

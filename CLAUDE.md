@@ -35,14 +35,12 @@ For work inside a package, also read the nearest `CLAUDE.md` or `.claude/rules/`
 9. Summarize: files changed, commands run, results, remaining risks.
 
 ## Quality gate
-Use the commands defined in the repository task runner. Until the task runner exists, use:
+Use `make gate`, which runs:
 - `uv run ruff check .`
 - `uv run ruff format --check .`
-- `uv run mypy apps packages`
+- `uv run mypy packages` (add `apps` once a Python app exists)
 - `uv run pytest -q`
-- `npm --prefix apps/web run lint`
-- `npm --prefix apps/web run typecheck`
-- `npm --prefix apps/web run test`
+- `npm --prefix apps/web run lint` / `typecheck` / `test` — only when `apps/web` exists (see decision log)
 
 Do not claim success without reporting actual command output.
 
