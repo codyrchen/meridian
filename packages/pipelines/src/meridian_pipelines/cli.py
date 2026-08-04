@@ -30,7 +30,11 @@ from sqlalchemy.orm import Session
 
 from meridian_pipelines import synthetic
 from meridian_pipelines.db import make_engine, make_session
-from meridian_pipelines.dq_checks import check_no_duplicate_unlock_events, latest_closes
+from meridian_pipelines.dq_checks import (
+    check_event_source_lineage,
+    check_no_duplicate_unlock_events,
+    latest_closes,
+)
 from meridian_pipelines.ids import asset_uuid
 from meridian_pipelines.ingest_market_data import ensure_asset, ingest_daily_bars
 from meridian_pipelines.load_unlock_event import load_curated_file, seed_event
@@ -75,8 +79,7 @@ def code_sha() -> str:
 
 def _event_day(config: SliceConfig) -> Any:
     curated = load_curated_file(REPO_ROOT / config.raw["event_file"])
-    scheduled = datetime.fromisoformat(str(curated["event"]["scheduled_at"]).replace("Z", "+00:00"))
-    return scheduled.astimezone(UTC).date()
+    return curated.event.scheduled_at.astimezone(UTC).date()
 
 
 def cmd_seed_event(args: argparse.Namespace) -> int:
@@ -85,9 +88,48 @@ def cmd_seed_event(args: argparse.Namespace) -> int:
     with make_session(engine) as session:
         result = seed_event(session, REPO_ROOT / config.raw["event_file"], REPO_ROOT)
     status = "created" if result.created_event else "already present (idempotent no-op)"
-    print(f"unlock event {result.event_id}: {status}")
-    print(f"asset:           {result.asset_id}")
-    print(f"source artifact: {result.source_artifact_id}")
+    print(f"unlock event version {result.event_version_id}: {status}")
+    print(f"logical event:    {result.logical_event_id}")
+    print(f"asset:            {result.asset_id}")
+    print(f"vesting series:   {result.vesting_series_id or '(none)'}")
+    print(
+        f"source artifacts: {len(result.source_artifact_ids)} "
+        f"({result.source_link_count} claim links)"
+    )
+    return 0
+
+
+def cmd_validate_curation(args: argparse.Namespace) -> int:
+    """Curation-validity check for one file: schema, taxonomy, provenance
+    rules, and archive checksums. No database, no network."""
+    from meridian_pipelines.curation_schema import (
+        CurationFileError,
+        parse_curation_file,
+        verify_source_archives,
+    )
+
+    path = Path(args.path)
+    try:
+        curation = parse_curation_file(path)
+        archives = verify_source_archives(curation, REPO_ROOT)
+    except CurationFileError as exc:
+        print(f"INVALID: {exc}")
+        return 1
+    event = curation.event
+    print(f"VALID: {path}")
+    print(f"  status:      {curation.curation.status}")
+    print(f"  asset:       {curation.asset.symbol} ({curation.asset.coingecko_id})")
+    print(f"  scheduled:   {event.scheduled_at.isoformat()} [{event.event_kind.value}]")
+    print(f"  bucket:      {event.allocation_bucket.value}")
+    print(f"  amount:      {event.amount_tokens} ({event.amount_provenance.value})")
+    print(f"  sources:     {len(curation.sources)} ({len(archives)} archived+verified)")
+    series = curation.vesting_series
+    if series is not None:
+        tranche = event.tranche_number
+        print(
+            f"  series:      {series.series_slug} [{series.cadence.value}] "
+            f"tranche {tranche}/{series.tranche_count}"
+        )
     return 0
 
 
@@ -158,6 +200,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     engine = make_engine()
     with make_session(engine) as session:
         check_no_duplicate_unlock_events(session)
+        check_event_source_lineage(session)
         asset_id = asset_uuid(asset_cfg["coingecko_id"])
         benchmark_id = asset_uuid(benchmark_cfg["coingecko_id"])
         asset_prices = latest_closes(session, asset_id)
@@ -207,7 +250,9 @@ def _data_snapshot(session: Session, config: SliceConfig, event_day: Any) -> dic
             select(SourceArtifactRow.checksum_sha256).order_by(SourceArtifactRow.checksum_sha256)
         )
     ]
-    event_count = session.execute(select(func.count(UnlockEventRow.id))).scalar_one()
+    event_count = session.execute(
+        select(func.count(UnlockEventRow.event_version_id)).where(UnlockEventRow.valid_to.is_(None))
+    ).scalar_one()
     return {
         "event_day_utc": event_day.isoformat(),
         "unlock_event_count": event_count,
@@ -277,6 +322,12 @@ def main(argv: list[str] | None = None) -> int:
     p_fixture = sub.add_parser("report-fixture", help="deterministic offline report")
     p_fixture.add_argument("--output-dir", default="outputs/fixture")
     p_fixture.set_defaults(func=cmd_report_fixture)
+
+    p_validate = sub.add_parser(
+        "validate-curation", help="validate one curation file (no database, no network)"
+    )
+    p_validate.add_argument("path")
+    p_validate.set_defaults(func=cmd_validate_curation)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

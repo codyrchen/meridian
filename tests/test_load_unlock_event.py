@@ -1,7 +1,14 @@
+"""Loader-level behavior. Structural/taxonomy failure cases live in
+test_curation_schema.py; these tests cover the loader's own gates."""
+
 from pathlib import Path
+from typing import cast
 
 import pytest
-from meridian_pipelines.load_unlock_event import CuratedEventError, load_curated_file
+import yaml
+from meridian_pipelines.load_unlock_event import CuratedEventError, load_curated_file, seed_event
+from sqlalchemy.orm import Session
+from test_curation_schema import valid_data
 
 
 def test_missing_file_raises(tmp_path: Path) -> None:
@@ -9,18 +16,26 @@ def test_missing_file_raises(tmp_path: Path) -> None:
         load_curated_file(tmp_path / "nope.yaml")
 
 
-def test_non_mapping_file_raises(tmp_path: Path) -> None:
-    path = tmp_path / "bad.yaml"
-    path.write_text("- just\n- a\n- list\n")
-    with pytest.raises(CuratedEventError, match="not a mapping"):
-        load_curated_file(path)
+def test_load_curated_file_returns_validated_model(tmp_path: Path) -> None:
+    path = tmp_path / "event.yaml"
+    path.write_text(yaml.safe_dump(valid_data()))
+    parsed = load_curated_file(path)
+    assert parsed.asset.coingecko_id == "synthetic-token"
+    assert parsed.curation.status == "ready"
 
 
-@pytest.mark.parametrize("missing", ["asset", "primary_source", "event"])
-def test_missing_required_section_raises(tmp_path: Path, missing: str) -> None:
-    sections = {"asset": "{}", "primary_source": "{}", "event": "{}"}
-    del sections[missing]
-    path = tmp_path / "partial.yaml"
-    path.write_text("\n".join(f"{k}: {v}" for k, v in sections.items()) + "\n")
-    with pytest.raises(CuratedEventError, match=missing):
-        load_curated_file(path)
+def test_seed_rejects_draft_status_before_touching_the_database(tmp_path: Path) -> None:
+    data = valid_data()
+    data["curation"]["status"] = "draft"
+    path = tmp_path / "event.yaml"
+    path.write_text(yaml.safe_dump(data))
+    # The status gate fires before any session use, so no database is needed.
+    with pytest.raises(CuratedEventError, match="ready"):
+        seed_event(cast(Session, None), path, tmp_path)
+
+
+def test_seed_rejects_missing_archive_before_touching_the_database(tmp_path: Path) -> None:
+    path = tmp_path / "event.yaml"
+    path.write_text(yaml.safe_dump(valid_data()))  # archive file never written
+    with pytest.raises(CuratedEventError, match="missing"):
+        seed_event(cast(Session, None), path, tmp_path)

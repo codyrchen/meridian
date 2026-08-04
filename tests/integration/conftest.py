@@ -32,13 +32,22 @@ def pg_engine() -> Iterator[Engine]:
     engine.dispose()
 
 
+def wipe_schema(engine: Engine) -> None:
+    """Drop everything, including leftovers from previous tests. Downgrading
+    through migrations is not used for cleanup: downgrade paths legitimately
+    refuse data that violates older-schema invariants (e.g. event versions
+    without a primary source link)."""
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+
+
 @pytest.fixture()
 def clean_db(pg_engine: Engine) -> Iterator[Engine]:
-    """Migrate to head from scratch for a pristine schema, then hand out the engine."""
+    """Wipe the schema and migrate to head, then hand out the engine."""
     from alembic import command
     from alembic.config import Config
 
-    cfg = Config("alembic.ini")
-    command.downgrade(cfg, "base")
-    command.upgrade(cfg, "head")
+    wipe_schema(pg_engine)
+    command.upgrade(Config("alembic.ini"), "head")
     yield pg_engine

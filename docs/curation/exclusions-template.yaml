@@ -1,0 +1,33 @@
+# ============================================================
+# MERIDIAN EXCLUSIONS FILE — data/curated/exclusions.yaml
+#
+# Every candidate event considered but NOT admitted to the canonical dataset
+# is recorded here. This is the survivorship-bias control: exclusions feed the
+# missingness analysis, so "silently skipped" must never happen.
+#
+# Reasons (pick the closest):
+#   unverifiable_schedule   no primary source states the date/cadence
+#   unverifiable_amount     amount neither reported nor derivable from
+#                           primary-verified quantities
+#   source_conflict         primary and secondary sources disagree; unresolved
+#   continuous_emission     no discrete event date exists
+#   tge_confounded          the event is the TGE/listing day itself
+#   no_price_coverage       provider history cannot cover the event window
+#                           (note: this excludes from CURATION only if pricing
+#                           is impossible in principle; otherwise curate the
+#                           event and let research-readiness mark it blocked)
+#   other                   explain in note
+# ============================================================
+schema_version: 1
+
+exclusions:
+  - asset_symbol: ""
+    coingecko_id: ""
+    candidate_scheduled_at: ""   # ISO-8601 UTC or best-known date
+    allocation_bucket: ""        # or unknown
+    reason: ""                   # one of the reasons above
+    note: ""                     # what was checked and what was missing
+    sources_checked:             # URLs consulted, incl. those that failed you
+      - ""
+    recorded_on: 2026-01-01
+    recorded_by: ""

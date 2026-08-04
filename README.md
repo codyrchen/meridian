@@ -51,6 +51,17 @@ make report             # [-30,+30] event study -> outputs/<run_id>/
 make report-fixture     # deterministic: identical CSV bytes on every run
 ```
 
+## Curating unlock events (Epic 1)
+
+Events enter the canonical dataset only through manually completed curation
+files — see [docs/curation/curation-guide.md](docs/curation/curation-guide.md)
+and the templates in `docs/curation/`. Validate a file (no database, no
+network) with:
+
+```bash
+make validate-curation FILE=data/curated/unlock_events/arb.yaml
+```
+
 ## Tests and quality gate
 
 ```bash

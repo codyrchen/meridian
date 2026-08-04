@@ -6,16 +6,28 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from meridian_domain.enums import AllocationBucket, ReleaseType, SourceConfidence
+from meridian_domain.enums import (
+    AllocationBucket,
+    AmountProvenance,
+    ClaimType,
+    EventKind,
+    ReleaseType,
+    SourceConfidence,
+    SourceRole,
+    SupplyMethod,
+    VestingCadence,
+)
 from sqlalchemy import (
     CheckConstraint,
     Date,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     PrimaryKeyConstraint,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -65,30 +77,117 @@ class AssetRow(Base):
     valid_to: Mapped[datetime | None]
 
 
+class VestingSeriesRow(Base):
+    __tablename__ = "vesting_series"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "series_slug"),
+        _enum_check("cadence", VestingCadence),
+        CheckConstraint(
+            "tranche_count IS NULL OR tranche_count >= 1", name="ck_tranche_count_positive"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    asset_id: Mapped[UUID] = mapped_column(ForeignKey("asset.id"))
+    series_slug: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    cadence: Mapped[str] = mapped_column(Text)
+    tranche_count: Mapped[int | None] = mapped_column(Integer)
+    first_tranche_at: Mapped[datetime | None]
+    last_tranche_at: Mapped[datetime | None]
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
 class UnlockEventRow(Base):
+    """One version of a canonical unlock event (SCD2). One current version
+    (valid_to IS NULL) per logical_event_id, enforced by a partial unique
+    index. Sources link through unlock_event_source."""
+
     __tablename__ = "unlock_event"
     __table_args__ = (
         _enum_check("release_type", ReleaseType),
         _enum_check("allocation_bucket", AllocationBucket),
         _enum_check("source_confidence", SourceConfidence),
+        _enum_check("event_kind", EventKind),
+        _enum_check("amount_provenance", AmountProvenance),
         CheckConstraint("amount_tokens > 0", name="ck_amount_tokens_positive"),
+        CheckConstraint(
+            "tranche_number IS NULL OR tranche_number >= 1", name="ck_tranche_number_positive"
+        ),
+        Index(
+            "uq_unlock_event_one_current_version",
+            "logical_event_id",
+            unique=True,
+            postgresql_where=text("valid_to IS NULL"),
+        ),
     )
 
-    id: Mapped[UUID] = mapped_column(primary_key=True)
+    event_version_id: Mapped[UUID] = mapped_column(primary_key=True)
+    logical_event_id: Mapped[UUID] = mapped_column()
+    supersedes_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("unlock_event.event_version_id")
+    )
     asset_id: Mapped[UUID] = mapped_column(ForeignKey("asset.id"))
     scheduled_at: Mapped[datetime]
     transferable_at: Mapped[datetime | None]
+    event_kind: Mapped[str] = mapped_column(Text, default="scheduled", server_default="scheduled")
     release_type: Mapped[str] = mapped_column(Text)
     allocation_bucket: Mapped[str] = mapped_column(Text)
+    bucket_composition: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     amount_tokens: Mapped[Decimal] = mapped_column(Numeric(50, 18))
+    amount_provenance: Mapped[str] = mapped_column(Text)
+    derivation: Mapped[str | None] = mapped_column(Text)
     percent_current_circulating: Mapped[Decimal | None] = mapped_column(Numeric(20, 10))
     percent_total_supply: Mapped[Decimal | None] = mapped_column(Numeric(20, 10))
-    source_artifact_id: Mapped[UUID] = mapped_column(ForeignKey("source_artifact.id"))
+    vesting_series_id: Mapped[UUID | None] = mapped_column(ForeignKey("vesting_series.id"))
+    tranche_number: Mapped[int | None] = mapped_column(Integer)
     source_confidence: Mapped[str] = mapped_column(Text)
     knowledge_timestamp: Mapped[datetime]
     valid_from: Mapped[datetime]
     valid_to: Mapped[datetime | None]
     ambiguity_flags: Mapped[list[str]] = mapped_column(JSONB, default=list)
+
+
+class UnlockEventSourceRow(Base):
+    """Association: one event version <-> one artifact for one claim."""
+
+    __tablename__ = "unlock_event_source"
+    __table_args__ = (
+        PrimaryKeyConstraint("event_version_id", "source_artifact_id", "source_role", "claim_type"),
+        _enum_check("source_role", SourceRole),
+        _enum_check("claim_type", ClaimType),
+    )
+
+    event_version_id: Mapped[UUID] = mapped_column(ForeignKey("unlock_event.event_version_id"))
+    source_artifact_id: Mapped[UUID] = mapped_column(ForeignKey("source_artifact.id"))
+    source_role: Mapped[str] = mapped_column(Text)
+    claim_type: Mapped[str] = mapped_column(Text)
+    excerpt: Mapped[str | None] = mapped_column(Text)
+
+
+class SupplyObservationRow(Base):
+    __tablename__ = "supply_observation"
+    __table_args__ = (
+        PrimaryKeyConstraint("asset_id", "ts", "source_artifact_id", "method"),
+        _enum_check("method", SupplyMethod),
+        CheckConstraint(
+            "(circulating_supply IS NULL OR circulating_supply > 0) "
+            "AND (total_supply IS NULL OR total_supply > 0)",
+            name="ck_supply_positive",
+        ),
+        CheckConstraint(
+            "circulating_supply IS NOT NULL OR total_supply IS NOT NULL",
+            name="ck_supply_at_least_one",
+        ),
+    )
+
+    asset_id: Mapped[UUID] = mapped_column(ForeignKey("asset.id"))
+    ts: Mapped[date] = mapped_column(Date)
+    circulating_supply: Mapped[Decimal | None] = mapped_column(Numeric(50, 18))
+    total_supply: Mapped[Decimal | None] = mapped_column(Numeric(50, 18))
+    method: Mapped[str] = mapped_column(Text)
+    source_artifact_id: Mapped[UUID] = mapped_column(ForeignKey("source_artifact.id"))
+    knowledge_timestamp: Mapped[datetime]
 
 
 class MarketBarDailyRow(Base):

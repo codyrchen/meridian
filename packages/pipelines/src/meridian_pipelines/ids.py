@@ -10,10 +10,25 @@ def asset_uuid(natural_key: str) -> uuid.UUID:
     return uuid.uuid5(_NAMESPACE, f"asset:{natural_key}")
 
 
-def unlock_event_uuid(
-    asset_id: uuid.UUID, scheduled_at_iso: str, allocation_bucket: str, amount_tokens: str
+def logical_event_uuid(
+    asset_id: uuid.UUID, scheduled_at_iso: str, allocation_bucket: str
+) -> uuid.UUID:
+    """Stable across revisions: amount is deliberately excluded so a corrected
+    amount stays the same logical event."""
+    return uuid.uuid5(
+        _NAMESPACE,
+        f"unlock-logical:{asset_id}:{scheduled_at_iso}:{allocation_bucket}",
+    )
+
+
+def event_version_uuid(
+    logical_event_id: uuid.UUID, knowledge_timestamp_iso: str, amount_tokens: str
 ) -> uuid.UUID:
     return uuid.uuid5(
         _NAMESPACE,
-        f"unlock:{asset_id}:{scheduled_at_iso}:{allocation_bucket}:{amount_tokens}",
+        f"unlock-version:{logical_event_id}:{knowledge_timestamp_iso}:{amount_tokens}",
     )
+
+
+def vesting_series_uuid(asset_id: uuid.UUID, series_slug: str) -> uuid.UUID:
+    return uuid.uuid5(_NAMESPACE, f"vesting-series:{asset_id}:{series_slug}")

@@ -29,6 +29,9 @@ report:               ## Run the [-30,+30] event study and write CSV/chart/manif
 report-fixture:       ## Deterministic offline report from committed synthetic fixtures
 	$(UV) run python -m meridian_pipelines.cli report-fixture
 
+validate-curation:    ## Validate one curation file: make validate-curation FILE=path/to/event.yaml
+	$(UV) run python -m meridian_pipelines.cli validate-curation $(FILE)
+
 test:                 ## Unit tests only (no network, no database)
 	$(UV) run pytest -q -m "not integration"
 
