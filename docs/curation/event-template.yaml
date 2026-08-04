@@ -1,0 +1,112 @@
+# ============================================================
+# MERIDIAN EVENT CURATION FILE — template v2 (one file per event)
+#
+# File name: <YYYY-MM-DD>_<bucket>.yaml under
+#   data/curated/unlock_events/<token>/
+#
+# Rules:
+# - Fill every field. Use null when genuinely unknown — never guess.
+# - Archive primary/on-chain source bytes FIRST, then record them here.
+#   Default location: data/raw/<source_name>/<sha256>.raw (gitignored).
+#   Place under data/curated/sources/ and set redistributable: true ONLY
+#   when the license explicitly permits redistribution.
+#   Get the checksum with:  shasum -a 256 <file>
+# - Aggregators are secondary cross-checks, never the basis of a fact.
+# - Check the file before handing it over:
+#   make validate-curation FILE=<this file>
+# ============================================================
+schema_version: 2
+
+curation:
+  status: draft            # draft | ready  — only "ready" files are seeded
+  curator: ""              # your name/handle
+  curated_on: 2026-01-01   # date you completed this file (UTC)
+
+asset:
+  symbol: ""
+  name: ""
+  chain_id: null           # e.g. arbitrum-one; null for L1-native assets
+  contract_address: null
+  decimals: 18
+  coingecko_id: ""
+
+# --- SOURCES ------------------------------------------------
+# Roles:
+#   primary              official team/foundation doc, blog, governance post
+#   onchain_verification vesting contract state or transaction evidence
+#   secondary_cross_check aggregator or independent coverage (cross-check only)
+# Claims (what this source supports): schedule | amount | allocation |
+#   composition | supply | other
+# primary/onchain sources MUST be archived (archived_path + checksum_sha256 +
+# retrieved_at) and MUST carry a supporting excerpt or locator.
+# secondary_cross_check MUST record `reports` and an explicit `agrees`.
+# An `agrees: false` anywhere blocks the file: resolve the conflict or record
+# the event in data/curated/exclusions.yaml instead.
+sources:
+  - source_name: ""        # slug, e.g. aptos_foundation_docs
+    source_uri: ""
+    role: primary
+    claims: [schedule, amount]
+    archived_path: ""      # repo-relative, e.g. data/raw/<source_name>/<sha256>.raw
+    checksum_sha256: ""
+    retrieved_at: ""       # ISO-8601 UTC, e.g. 2026-08-04T15:00:00Z
+    license_class: attribution_required   # public | attribution_required | restricted
+    redistributable: false # true ONLY when the license explicitly permits
+    excerpt: ""            # the sentence(s)/figure/section that support the claims
+  - source_name: ""
+    source_uri: ""
+    role: secondary_cross_check
+    claims: [amount]
+    license_class: restricted
+    reports: ""            # what the aggregator/coverage says
+    agrees: true
+
+# --- VESTING SERIES (recommended for recurring tranches) ----
+# Tranches of the same schedule must share one series_slug so later analysis
+# can treat them as repeated, non-independent observations. Delete the section
+# only for genuinely one-off events.
+vesting_series:
+  series_slug: ""          # e.g. apt-core-contributors-monthly
+  name: ""
+  cadence: monthly         # cliff | monthly | quarterly | continuous | irregular | unknown
+  tranche_count: null      # total tranches in the series, if known
+  first_tranche_at: null   # ISO-8601 UTC or null
+  last_tranche_at: null
+  notes: null
+
+# --- EVENT --------------------------------------------------
+event:
+  event_kind: scheduled    # scheduled | observed_transfer | observed_exchange_deposit
+  scheduled_at: ""         # ISO-8601 UTC. If the source gives only a date, use
+                           # T00:00:00Z and add the intra-day ambiguity flag.
+  transferable_at: null
+  release_type: ""         # cliff | linear | emission | milestone | governance | unknown
+  allocation_bucket: ""    # team | investor | foundation | community | ecosystem |
+                           # treasury | airdrop | rewards | unknown
+                           # Use unknown + bucket_composition for combined tranches
+                           # the primary source does not split.
+  bucket_composition: null # OR a list, each entry:
+                           #   {bucket: team, amount_tokens: "123" or null,
+                           #    provenance: primary|secondary_cross_check|onchain_verification,
+                           #    note: "..."}
+  amount_tokens: ""        # decimal string, e.g. "92645833.333333"
+  amount_provenance: ""    # reported = stated verbatim by a primary source
+                           # derived  = computed; derivation below is REQUIRED
+  derivation: null         # REQUIRED when derived: formula + inputs + which
+                           # source verifies each input
+  percent_total_supply: null        # only when total supply is primary-verified;
+                                    # record the formula in derivation
+  percent_current_circulating: null # only when a primary source reports
+                                    # point-in-time float; otherwise leave null
+  tranche_number: null     # position in the vesting series (1-based)
+  source_confidence: ""    # verified_primary | verified_secondary
+  ambiguity_flags: []      # e.g. "intra-day time not specified; 00:00Z convention"
+
+# --- CURATOR CHECKLIST (all true before status: ready) ------
+checklist:
+  date_verified_from_primary: false
+  amount_reported_or_derivation_recorded: false
+  primary_source_archived_and_checksummed: false
+  secondary_cross_check_recorded: false
+  no_unresolved_source_conflicts: false
+  unknown_fields_left_null_not_guessed: false

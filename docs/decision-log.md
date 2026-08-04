@@ -80,3 +80,47 @@ Daily observations are sufficient to test the core hypothesis and are easier to 
 - Date: 2026-07-30
 - Decision: the June 2026 monthly ARB investor/team unlock is the candidate event. Its timestamp, quantity, and allocation must be verified against an official Arbitrum source or the on-chain vesting contract before curation; the primary source is archived with retrieval timestamp and checksum; verified facts are distinguished from derived values; aggregators are secondary cross-checks only; if verification fails, stop and report.
 - Context: aggregator-only sourcing creates invisible errors (see "Curated dataset before automated extraction").
+
+## Epic 1 decisions (2026-08-04)
+
+### Free CoinGecko path; provider-independent coverage
+- Date: 2026-08-04
+- Decision: Epic 1 uses the free CoinGecko path. Provider history availability (~365 days of daily data) is treated as a runtime research-coverage constraint reported per event, never as a permanent dataset definition. The connector remains provider-independent (injected payload fetcher; provider-specific parsing isolated in meridian_connectors) so a licensed source can be added later. No paid key is purchased or required.
+- Context: free-tier history limits which historical events can be priced, but the canonical dataset must not inherit a vendor's window.
+- Revisit trigger: licensing a longer-history market-data source.
+
+### Initial tokens ARB, APT, SUI; eligibility audit for all others
+- Date: 2026-08-04
+- Decision: eligibility and curation begin with ARB, APT, SUI. OP, STRK, and further candidates must pass a primary-source eligibility audit first. A token is never admitted merely to meet a token-count target.
+- Context: dataset trustworthiness outranks dataset size (see "Curated dataset before automated extraction").
+
+### Clean-window annotation, ±7 calendar days
+- Date: 2026-08-04
+- Decision: events with another same-asset event within ±7 calendar days of day 0 are annotated as not clean-window. The flag is descriptive metadata for downstream filtering and must never remove events from the canonical dataset.
+- Context: monthly cadences make ±30-day windows overlap by construction; dropping overlapped events would bias toward cliff-only tokens.
+
+### Multi-source event lineage (unlock_event_source)
+- Date: 2026-08-04
+- Decision: one event version links to many source artifacts through unlock_event_source (event_version_id, source_artifact_id, source_role primary|secondary_cross_check|onchain_verification, claim_type schedule|amount|allocation|composition|supply|other, excerpt/locator). unlock_event.source_artifact_id is dropped; existing links migrate as role=primary. A multi-source curation record is never reduced to one artifact FK.
+- Context: real events rest on several documents plus optional on-chain verification; a single FK forced information loss.
+- Consequences: "every event links to >=1 archived primary source" is enforced by the curation-validity layer, not a NOT NULL column.
+
+### Versioned event identity (logical_event_id / event_version_id)
+- Date: 2026-08-04
+- Decision: unlock_event rows are versions. logical_event_id = uuid5(asset, scheduled_at, allocation_bucket) is stable across revisions (amount excluded so corrections keep identity). event_version_id (PK) = uuid5(logical_event_id, knowledge_timestamp, amount). supersedes_version_id chains versions. SCD2 valid_from/valid_to with a partial unique index enforcing one current version per logical event. Closing valid_to at supersede time is the single permitted UPDATE. Current-state and as-of query helpers are provided and integration-tested.
+- Context: modeling revisions as unrelated deterministic rows made correction history unqueryable and risked duplicate current rows.
+
+### Vesting-series identity
+- Date: 2026-08-04
+- Decision: vesting_series table (deterministic id from asset + series slug; cadence, tranche_count, first/last tranche timestamps) with unlock_event.vesting_series_id and tranche_number. Tranches of one schedule share a stable series id.
+- Context: monthly tranches are not independent observations; later analysis needs the grouping to model repeated events honestly.
+
+### Two validation layers: curation validity vs research readiness
+- Date: 2026-08-04
+- Decision: curation validity (provenance, checksums, derivation, taxonomy, schedule, duplicates) decides whether an event is canonical. Research readiness (market/benchmark/supply coverage, complete windows) decides whether it enters event-study output. An event with missing prices stays canonical but is research-blocked and reported as such.
+- Context: conflating the layers either fabricated coverage or ejected verified facts from the dataset.
+
+### Source storage defaults to gitignored; metadata-only commits
+- Date: 2026-08-04
+- Decision: archived source bytes default to the gitignored content-addressed store (data/raw/). Curation files commit metadata, checksum, retrieval time, and a short excerpt/locator. Full snapshots are committed under data/curated/sources/ only when the license explicitly permits redistribution (redistributable: true). Existing Epic 0 ARB snapshots stay committed under the previously logged exception.
+- Context: public accessibility does not authorize redistribution.

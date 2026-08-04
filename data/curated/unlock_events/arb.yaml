@@ -1,7 +1,14 @@
 # Curated unlock event: ARB monthly team+investor vesting tranche, June 2026.
-# Manually verified 2026-07-30 (retrieval 2026-07-31T00:21Z UTC). See the
-# `verification` section for exactly which values are verified vs derived.
-schema_version: 1
+# Originally verified 2026-07-30 (Epic 0, template v1); re-expressed in
+# template v2 on 2026-08-04 with identical facts — see git history for the
+# v1 form. Archived snapshots predate the gitignored-by-default storage
+# decision and remain committed under the logged exception (public docs).
+schema_version: 2
+
+curation:
+  status: ready
+  curator: "Cody Chen + Claude (Epic 0 curation, re-expressed in template v2)"
+  curated_on: 2026-07-30
 
 asset:
   symbol: ARB
@@ -11,69 +18,103 @@ asset:
   decimals: 18
   coingecko_id: arbitrum
 
-primary_source:
-  source_name: arbitrum_foundation_docs
-  source_uri: https://docs.arbitrum.foundation/airdrop-eligibility-distribution
-  archived_path: data/curated/sources/arbitrum_foundation_docs/db954d0edf42fbc5d49020f3a09d93fe33d33679fa34a29b5ec981b9b0134c72.raw
-  checksum_sha256: db954d0edf42fbc5d49020f3a09d93fe33d33679fa34a29b5ec981b9b0134c72
-  retrieved_at: "2026-07-31T00:21:13Z"
-  license_class: public
+sources:
+  - source_name: arbitrum_foundation_docs
+    source_uri: https://docs.arbitrum.foundation/airdrop-eligibility-distribution
+    role: primary
+    claims: [schedule, amount, allocation]
+    archived_path: data/curated/sources/arbitrum_foundation_docs/db954d0edf42fbc5d49020f3a09d93fe33d33679fa34a29b5ec981b9b0134c72.raw
+    checksum_sha256: db954d0edf42fbc5d49020f3a09d93fe33d33679fa34a29b5ec981b9b0134c72
+    retrieved_at: "2026-07-31T00:21:13Z"
+    license_class: public
+    redistributable: true
+    excerpt: >
+      Team and Contributors + Advisors allocation is 26.94% (2.694B ARB);
+      Investors allocation is 17.53% (1.753B ARB). All investor and team
+      tokens are subject to 4-year lockups; first unlocks one year after TGE
+      (2023-03-16), then monthly unlocks for the remaining three years.
+  - source_name: arbitrum_foundation_docs
+    source_uri: https://docs.arbitrum.foundation/token-supply
+    role: primary
+    claims: [schedule, supply]
+    archived_path: data/curated/sources/arbitrum_foundation_docs/cd5d358833de42075541fcc05017246f3cdd8d646c116a1b074b82ba0433bbbf.raw
+    checksum_sha256: cd5d358833de42075541fcc05017246f3cdd8d646c116a1b074b82ba0433bbbf
+    retrieved_at: "2026-07-31T00:21:13Z"
+    license_class: public
+    redistributable: true
+    excerpt: >
+      First unlock starts on 16 March 2024 and continues on a monthly
+      cadence; total supply is 10B ARB. Circulating-supply projection steps
+      from 1.537B on 2024-03-07 to ~2.654B on 2024-03-17 (a ~1.117B step,
+      ~25.1% of the 4.447B locked pool), implying the 25% first cliff.
+  - source_name: tokenomist_ai
+    source_uri: https://tokenomist.ai/arbitrum
+    role: secondary_cross_check
+    claims: [amount, composition]
+    license_class: restricted
+    reports: >
+      ~92.65M ARB unlocking on 2026-06-16, split ~56.13M Team/Future Team +
+      Advisors and ~36.52M Investors. Consistent with the derived amount.
+    agrees: true
+
+vesting_series:
+  series_slug: arb-team-investor-monthly
+  name: "ARB team, advisors and investor monthly vesting"
+  cadence: monthly
+  tranche_count: 36
+  first_tranche_at: "2024-04-16T00:00:00Z"
+  last_tranche_at: "2027-03-16T00:00:00Z"
+  notes: >
+    25% cliff on 2024-03-16 preceded the monthly tranches; the remaining 75%
+    of the 4.447B locked pool vests in equal monthly tranches over 36 months.
+    2026-06-16 is month 27 of 36.
 
 event:
-  # Date verified from primary source (monthly cadence anchored on the 16th,
-  # first unlock 2024-03-16). Intra-day time is NOT specified by the primary
-  # source; midnight UTC is a convention, flagged below.
+  event_kind: scheduled
   scheduled_at: "2026-06-16T00:00:00Z"
+  transferable_at: null
   release_type: linear
   # The tranche combines Team/Advisors and Investors; the primary source does
   # not split monthly amounts by bucket, and only a secondary aggregator does,
-  # so the canonical record uses `unknown` rather than adopting an
-  # aggregator-only split. See ambiguity_flags.
+  # so the canonical record uses `unknown` with the aggregator split recorded
+  # in bucket_composition (never canonicalized into allocation_bucket).
   allocation_bucket: unknown
-  # DERIVED (see verification.derived_values): 4.447e9 * 0.75 / 36.
+  bucket_composition:
+    - bucket: team
+      amount_tokens: null
+      provenance: secondary_cross_check
+      note: "~56.13M Team/Future Team + Advisors per tokenomist.ai; not primary-verified"
+    - bucket: investor
+      amount_tokens: null
+      provenance: secondary_cross_check
+      note: "~36.52M Investors per tokenomist.ai; not primary-verified"
   amount_tokens: "92645833.333333"
-  # DERIVED: amount / 10e9 total supply * 100.
+  amount_provenance: derived
+  derivation: >
+    amount_tokens = (2.694e9 + 1.753e9) * 0.75 / 36 = 92,645,833.333333 ARB.
+    Allocations (26.94% team+advisors, 17.53% investors of 10B total) and the
+    monthly cadence are stated by the airdrop-eligibility-distribution page;
+    the 25% first-cliff fraction is implied by the token-supply page's
+    circulating-supply step (~1.117B ~= 25.1% of the 4.447B locked pool);
+    equal monthly tranches over the remaining 36 months are assumed.
+    percent_total_supply = amount_tokens / 10e9 * 100 (total supply
+    primary-verified on the token-supply page).
   percent_total_supply: "0.9264583333"
   # Point-in-time circulating supply at the event date was not verified from a
   # primary source; left null rather than imputed.
   percent_current_circulating: null
+  tranche_number: 27
   source_confidence: verified_primary
   ambiguity_flags:
     - "intra-day unlock time not specified by primary source; 00:00 UTC is a convention"
-    - "amount_tokens is derived, not stated by the primary source (see verification)"
-    - "combined team+investor tranche; per-bucket split (~56.13M team / ~36.52M investor) is aggregator-sourced and therefore not canonicalized"
+    - "amount_tokens is derived, not stated by the primary source (see derivation)"
+    - "combined team+investor tranche; per-bucket split is aggregator-sourced and therefore not canonicalized"
+    - "token-supply page retrieval timestamp shared with the airdrop page (same curation session); per-source timing not separately recorded"
 
-verification:
-  verified_facts:
-    - fact: "Team and Contributors + Advisors allocation is 26.94% (2.694B ARB); Investors allocation is 17.53% (1.753B ARB)"
-      source: https://docs.arbitrum.foundation/airdrop-eligibility-distribution
-      artifact_checksum: db954d0edf42fbc5d49020f3a09d93fe33d33679fa34a29b5ec981b9b0134c72
-    - fact: "All investor and team tokens are subject to 4-year lockups; first unlocks one year after TGE (2023-03-16), then monthly unlocks for the remaining three years"
-      source: https://docs.arbitrum.foundation/airdrop-eligibility-distribution
-      artifact_checksum: db954d0edf42fbc5d49020f3a09d93fe33d33679fa34a29b5ec981b9b0134c72
-    - fact: "First unlock starts on 16 March 2024 and continues on a monthly cadence; total supply is 10B ARB"
-      source: https://docs.arbitrum.foundation/token-supply
-      artifact_checksum: cd5d358833de42075541fcc05017246f3cdd8d646c116a1b074b82ba0433bbbf
-    - fact: "Therefore a monthly team+investor unlock is scheduled for 2026-06-16 (month 27 of 36; monthly unlocks conclude March 2027)"
-      derivation: "date arithmetic on the verified cadence; no interpolation"
-  derived_values:
-    - value: "amount_tokens = 92,645,833.333333 ARB"
-      formula: "(2.694e9 + 1.753e9) * 0.75 / 36"
-      basis: >
-        The primary source states allocations and monthly cadence but not the
-        per-month amount. The 25% first-cliff fraction is implied by the
-        token-supply page's circulating-supply projection (1.537B on
-        2024-03-07 rising to ~2.654B on 2024-03-17, a ~1.117B step that is
-        ~25.1% of the 4.447B locked pool); equal monthly tranches over the
-        remaining 36 months are assumed.
-    - value: "percent_total_supply = 0.9264583333%"
-      formula: "amount_tokens / 10e9 * 100"
-  secondary_checks:
-    - source: "tokenomist.ai/arbitrum and contemporaneous coverage of the 2026-06-16 unlock"
-      note: >
-        Secondary aggregator cross-check only, never source of truth: reports
-        ~92.65M ARB unlocking on 2026-06-16 split ~56.13M Team/Future Team +
-        Advisors and ~36.52M Investors. Consistent with the derived amount.
-  not_verified:
-    - "on-chain vesting contract addresses and their per-tranche transfer events (deferred; would upgrade the amount from derived to verified)"
-    - "point-in-time circulating supply on 2026-06-16"
+checklist:
+  date_verified_from_primary: true
+  amount_reported_or_derivation_recorded: true
+  primary_source_archived_and_checksummed: true
+  secondary_cross_check_recorded: true
+  no_unresolved_source_conflicts: true
+  unknown_fields_left_null_not_guessed: true

@@ -21,7 +21,12 @@ from meridian_pipelines.dq_checks import (
     latest_closes,
 )
 from meridian_pipelines.ids import asset_uuid
-from meridian_pipelines.tables import MarketBarDailyRow, SourceArtifactRow, UnlockEventRow
+from meridian_pipelines.tables import (
+    MarketBarDailyRow,
+    SourceArtifactRow,
+    UnlockEventRow,
+    UnlockEventSourceRow,
+)
 from sqlalchemy import Engine, func, select
 
 pytestmark = pytest.mark.integration
@@ -46,30 +51,49 @@ def workspace(tmp_path: Path) -> dict[str, Path]:
     curated.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 1,
+                "schema_version": 2,
+                "curation": {
+                    "status": "ready",
+                    "curator": "integration-test",
+                    "curated_on": "2026-07-30",
+                },
                 "asset": {
                     "symbol": "SYNTH",
                     "name": "Synthetic Token",
                     "coingecko_id": synthetic.FIXTURE_ASSET,
                     "decimals": 18,
                 },
-                "primary_source": {
-                    "source_name": "synthetic_docs",
-                    "source_uri": "fixture://synthetic",
-                    "archived_path": str(archived),
-                    "checksum_sha256": checksum,
-                    "retrieved_at": "2026-07-30T00:00:00Z",
-                    "license_class": "public",
-                },
+                "sources": [
+                    {
+                        "source_name": "synthetic_docs",
+                        "source_uri": "fixture://synthetic",
+                        "role": "primary",
+                        "claims": ["schedule", "amount"],
+                        "archived_path": str(archived),
+                        "checksum_sha256": checksum,
+                        "retrieved_at": "2026-07-30T00:00:00Z",
+                        "license_class": "public",
+                        "excerpt": "synthetic vesting schedule document",
+                    }
+                ],
                 "event": {
                     "scheduled_at": "2026-06-16T13:00:00Z",
                     "release_type": "cliff",
                     "allocation_bucket": "investor",
                     "amount_tokens": "92650000",
+                    "amount_provenance": "reported",
                     "percent_total_supply": "0.9265",
                     "percent_current_circulating": None,
                     "source_confidence": "unverified",
                     "ambiguity_flags": ["synthetic test data"],
+                },
+                "checklist": {
+                    "date_verified_from_primary": True,
+                    "amount_reported_or_derivation_recorded": True,
+                    "primary_source_archived_and_checksummed": True,
+                    "secondary_cross_check_recorded": True,
+                    "no_unresolved_source_conflicts": True,
+                    "unknown_fields_left_null_not_guessed": True,
                 },
             }
         )
@@ -123,16 +147,25 @@ def test_seed_ingest_report_end_to_end(
     assert re.search(r"76 bars parsed, 0 inserted, 76 already present", out)
 
     with make_session(clean_db) as session:
-        assert session.execute(select(func.count(UnlockEventRow.id))).scalar_one() == 1
+        assert (
+            session.execute(select(func.count(UnlockEventRow.event_version_id))).scalar_one() == 1
+        )
         bar_count = session.execute(select(func.count(MarketBarDailyRow.ts))).scalar_one()
         assert bar_count == 152  # 76 days x 2 assets, no duplicates
-        # Lineage: every bar and the event point at archived artifacts.
+        # Lineage: every bar points at an archived artifact, and the event has
+        # a primary source link in the association table.
         orphan_bars = session.execute(
             select(func.count(MarketBarDailyRow.ts)).where(
                 MarketBarDailyRow.source_artifact_id.not_in(select(SourceArtifactRow.id))
             )
         ).scalar_one()
         assert orphan_bars == 0
+        primary_links = session.execute(
+            select(func.count(UnlockEventSourceRow.event_version_id)).where(
+                UnlockEventSourceRow.source_role == "primary"
+            )
+        ).scalar_one()
+        assert primary_links >= 1
 
     assert main(["report", "--config", config]) == 0
     report_out = capsys.readouterr().out
@@ -169,16 +202,17 @@ def test_duplicate_unlock_events_fail_dq(clean_db: Engine) -> None:
         session.add(
             AssetRow(id=asset_id, symbol="DUP", name="Dup", coingecko_id="dup-test", valid_from=now)
         )
-        for _ in range(2):  # same natural key, distinct ids -> duplicate
+        for _ in range(2):  # same natural key, distinct logical/version ids -> duplicate
             session.add(
                 UnlockEventRow(
-                    id=uuid4(),
+                    event_version_id=uuid4(),
+                    logical_event_id=uuid4(),
                     asset_id=asset_id,
                     scheduled_at=now,
                     release_type="cliff",
                     allocation_bucket="investor",
                     amount_tokens=Decimal("1000"),
-                    source_artifact_id=artifact_id,
+                    amount_provenance="reported",
                     source_confidence="unverified",
                     knowledge_timestamp=now,
                     valid_from=now,
@@ -188,6 +222,7 @@ def test_duplicate_unlock_events_fail_dq(clean_db: Engine) -> None:
         session.commit()
         with pytest.raises(DataQualityError, match="duplicate unlock event"):
             check_no_duplicate_unlock_events(session)
+        assert artifact_id is not None  # artifact retained for lineage checks
 
 
 def test_latest_closes_prefers_newest_knowledge_timestamp(clean_db: Engine) -> None:
