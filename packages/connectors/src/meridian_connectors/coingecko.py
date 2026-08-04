@@ -11,7 +11,7 @@ import logging
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -19,6 +19,12 @@ import httpx
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.coingecko.com/api/v3"
+
+# market_chart/range auto-granularity returns hourly points for ranges of 90
+# days or less and daily points only above that; the daily `interval` param is
+# Enterprise-only. Requests are widened backwards (never forwards) to this
+# minimum span so the source itself supplies one observation per UTC date.
+MIN_DAILY_GRANULARITY_DAYS = 92
 
 
 class CoinGeckoError(Exception):
@@ -62,11 +68,20 @@ class CoinGeckoClient:
     def fetch_market_chart_range(
         self, coin_id: str, vs_currency: str, start: datetime, end: datetime
     ) -> bytes:
-        """Return the raw response body for /coins/{id}/market_chart/range."""
+        """Return the raw response body for /coins/{id}/market_chart/range.
+
+        The requested span is widened backwards to MIN_DAILY_GRANULARITY_DAYS
+        when necessary so the response carries daily (not hourly) points.
+        """
+        start_utc = start.astimezone(UTC)
+        end_utc = end.astimezone(UTC)
+        min_span = timedelta(days=MIN_DAILY_GRANULARITY_DAYS)
+        if end_utc - start_utc < min_span:
+            start_utc = end_utc - min_span
         params = {
             "vs_currency": vs_currency,
-            "from": str(int(start.astimezone(UTC).timestamp())),
-            "to": str(int(end.astimezone(UTC).timestamp())),
+            "from": str(int(start_utc.timestamp())),
+            "to": str(int(end_utc.timestamp())),
         }
         url = f"/coins/{coin_id}/market_chart/range"
         last_error: str = "no attempts made"

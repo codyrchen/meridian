@@ -18,12 +18,17 @@ import yaml
 from meridian_connectors.archive import ArchiveIntegrityError, artifact_id
 from meridian_domain.enums import AllocationBucket, LicenseClass, ReleaseType, SourceConfidence
 from meridian_domain.models import SourceArtifactMeta, UnlockEvent
-from sqlalchemy import CursorResult
+from sqlalchemy import Table
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from meridian_pipelines.ids import asset_uuid, unlock_event_uuid
 from meridian_pipelines.tables import AssetRow, SourceArtifactRow, UnlockEventRow
+
+# Declarative __table__ is typed FromClause; cast once for typed Core inserts.
+_ASSET_TABLE = cast(Table, AssetRow.__table__)
+_SOURCE_ARTIFACT_TABLE = cast(Table, SourceArtifactRow.__table__)
+_UNLOCK_EVENT_TABLE = cast(Table, UnlockEventRow.__table__)
 
 
 class CuratedEventError(Exception):
@@ -132,7 +137,7 @@ def _optional_decimal(cfg: dict[str, Any], key: str) -> Decimal | None:
 
 def _insert_artifact(session: Session, artifact: SourceArtifactMeta) -> None:
     stmt = (
-        insert(SourceArtifactRow)
+        insert(_SOURCE_ARTIFACT_TABLE)
         .values(
             id=artifact.id,
             source_name=artifact.source_name,
@@ -153,7 +158,7 @@ def _insert_asset(
     session: Session, asset_id: UUID, asset_cfg: dict[str, Any], valid_from: datetime
 ) -> None:
     stmt = (
-        insert(AssetRow)
+        insert(_ASSET_TABLE)
         .values(
             id=asset_id,
             symbol=asset_cfg["symbol"],
@@ -171,7 +176,7 @@ def _insert_asset(
 
 def _insert_event(session: Session, event: UnlockEvent) -> bool:
     stmt = (
-        insert(UnlockEventRow)
+        insert(_UNLOCK_EVENT_TABLE)
         .values(
             id=event.id,
             asset_id=event.asset_id,
@@ -189,6 +194,8 @@ def _insert_event(session: Session, event: UnlockEvent) -> bool:
             ambiguity_flags=event.ambiguity_flags,
         )
         .on_conflict_do_nothing(index_elements=["id"])
+        # RETURNING makes the created/no-op distinction exact regardless of
+        # driver rowcount behavior: a conflict returns no row.
+        .returning(_UNLOCK_EVENT_TABLE.c.id)
     )
-    result = cast(CursorResult[Any], session.execute(stmt))
-    return bool(result.rowcount)
+    return session.execute(stmt).first() is not None

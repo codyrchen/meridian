@@ -1,8 +1,12 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-from meridian_connectors.coingecko import CoinGeckoClient, CoinGeckoError
+from meridian_connectors.coingecko import (
+    MIN_DAILY_GRANULARITY_DAYS,
+    CoinGeckoClient,
+    CoinGeckoError,
+)
 
 START = datetime(2026, 5, 10, tzinfo=UTC)
 END = datetime(2026, 7, 20, tzinfo=UTC)
@@ -80,5 +84,23 @@ def test_sends_demo_api_key_header_and_range_params() -> None:
     request = seen[0]
     assert request.headers["x-cg-demo-api-key"] == "demo-key-123"
     assert request.url.path.endswith("/coins/bitcoin/market_chart/range")
-    assert request.url.params["from"] == str(int(START.timestamp()))
+    # START..END spans <92 days, so `from` is widened backwards to guarantee
+    # daily granularity; `to` never moves.
+    widened = END - timedelta(days=MIN_DAILY_GRANULARITY_DAYS)
+    assert request.url.params["from"] == str(int(widened.timestamp()))
+    assert request.url.params["to"] == str(int(END.timestamp()))
+
+
+def test_range_above_daily_granularity_threshold_passes_through_unchanged() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=OK_BODY)
+
+    long_start = END - timedelta(days=MIN_DAILY_GRANULARITY_DAYS + 8)
+    client = make_client(httpx.MockTransport(handler), [])
+    client.fetch_market_chart_range("bitcoin", "usd", long_start, END)
+    request = seen[0]
+    assert request.url.params["from"] == str(int(long_start.timestamp()))
     assert request.url.params["to"] == str(int(END.timestamp()))
