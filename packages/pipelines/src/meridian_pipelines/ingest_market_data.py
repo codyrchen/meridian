@@ -9,19 +9,24 @@ corrections); readers resolve by latest knowledge_timestamp."""
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 from meridian_connectors.archive import RawArchive
 from meridian_connectors.coingecko import parse_market_chart
 from meridian_domain.enums import LicenseClass
 from meridian_domain.models import MarketBar, SourceArtifactMeta
-from sqlalchemy import CursorResult
+from sqlalchemy import Table
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from meridian_pipelines.ids import asset_uuid
 from meridian_pipelines.tables import AssetRow, MarketBarDailyRow, SourceArtifactRow
+
+# Declarative __table__ is typed FromClause; cast once for typed Core inserts.
+_ASSET_TABLE = cast(Table, AssetRow.__table__)
+_MARKET_BAR_TABLE = cast(Table, MarketBarDailyRow.__table__)
+_SOURCE_ARTIFACT_TABLE = cast(Table, SourceArtifactRow.__table__)
 
 # (coin_id) -> (payload_bytes, source_uri) — live client or fixture reader.
 PayloadFetcher = Callable[[str], tuple[bytes, str]]
@@ -43,7 +48,7 @@ class IngestResult:
 def ensure_asset(session: Session, *, symbol: str, name: str, coingecko_id: str) -> UUID:
     asset_id = asset_uuid(coingecko_id)
     stmt = (
-        insert(AssetRow)
+        insert(_ASSET_TABLE)
         .values(
             id=asset_id,
             symbol=symbol,
@@ -96,7 +101,7 @@ def ingest_daily_bars(
     inserted = 0
     for bar in bars:
         stmt = (
-            insert(MarketBarDailyRow)
+            insert(_MARKET_BAR_TABLE)
             .values(
                 asset_id=bar.asset_id,
                 ts=bar.ts,
@@ -111,8 +116,11 @@ def ingest_daily_bars(
                 knowledge_timestamp=bar.knowledge_timestamp,
             )
             .on_conflict_do_nothing(index_elements=["asset_id", "ts", "source_artifact_id"])
+            # RETURNING makes the inserted-row count exact regardless of
+            # driver rowcount behavior: conflicts return no row.
+            .returning(_MARKET_BAR_TABLE.c.ts)
         )
-        inserted += cast(CursorResult[Any], session.execute(stmt)).rowcount or 0
+        inserted += len(session.execute(stmt).all())
     session.commit()
     return IngestResult(
         coin_id=coin_id,
@@ -125,7 +133,7 @@ def ingest_daily_bars(
 
 def _insert_artifact_row(session: Session, artifact: SourceArtifactMeta) -> None:
     stmt = (
-        insert(SourceArtifactRow)
+        insert(_SOURCE_ARTIFACT_TABLE)
         .values(
             id=artifact.id,
             source_name=artifact.source_name,
